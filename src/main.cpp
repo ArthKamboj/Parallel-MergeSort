@@ -5,6 +5,8 @@
 #include <random>
 using namespace std;
 
+const int Threshold = 10000;
+
 void merge(vector<int>& arr, int left, int mid, int right){
 
     int n1 = mid - left + 1;
@@ -29,13 +31,25 @@ void merge(vector<int>& arr, int left, int mid, int right){
 void sequentialMergeSort(vector<int>& arr, int left, int right){
     
     if(left<right){
-        int mid = left + (right-left) / 2;
+        int mid = left + ((right-left)>>1);
         sequentialMergeSort(arr, left, mid);
         sequentialMergeSort(arr, mid+1, right);
         merge(arr, left, mid, right);
     }
 
+}
 
+void parellelMergeSort(vector<int>& arr, int left, int right){
+
+    if(right - left < Threshold){
+        sequentialMergeSort(arr, left, right);
+        return;
+    }
+
+    int mid = left + ((right-left)>>1);
+    parellelMergeSort(arr, left, mid);
+    parellelMergeSort(arr, mid+1, right);
+    merge(arr, left, mid, right);
 }
 
 int main() {
@@ -52,7 +66,7 @@ int main() {
 
     auto start = chrono::high_resolution_clock::now();
 
-    sequentialMergeSort(data, 0, N-1);
+    parellelMergeSort(data, 0, N-1);
 
     auto end = chrono::high_resolution_clock::now();
     
