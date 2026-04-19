@@ -1,3 +1,4 @@
+#define _WIN32_WINNT 0x0600
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -7,6 +8,9 @@
 #include <thread>
 #include <windows.h>
 #include <atomic>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 
 using namespace std;
 
@@ -18,21 +22,49 @@ int getCoreCount() {
     return sysinfo.dwNumberOfProcessors;
 }    
 
+struct SortTask {
+    vector<int>* arr;
+    int left;
+    int right;
+    int depth;
+};
+
 const int MAX_THREADS = getCoreCount();
+const int MAX_DEPTH = log2(MAX_THREADS)+2;
 atomic<int> activethreads(1);
+
+queue<SortTask> taskQueue;
+CRITICAL_SECTION queueLock;
+CONDITION_VARIABLE taskReady;
+bool stopPool = false;
+
 
 
 void parallelMergeSort(vector<int>& arr, int left, int right);
 
-struct ThreadData {
-    vector<int>* arr;
-    int left;
-    int right;
-};
 
-DWORD WINAPI threadWorker(LPVOID lpParam) {
-    ThreadData* data = (ThreadData*)lpParam;
-    parallelMergeSort(*(data->arr), data->left, data->right);
+DWORD WINAPI poolWorker(LPVOID lpParam) {
+
+    while (true) {
+        SortTask task;
+        EnterCriticalSection(&queueLock);
+
+        while(taskQueue.empty() && !stopPool) {
+                SleepConditionVariableCS(&taskReady, &queueLock, INFINITE);
+        }
+
+        if(stopPool && taskQueue.empty()) {
+            LeaveCriticalSection(&queueLock);
+            break;
+        }
+
+        task = taskQueue.front();
+        taskQueue.pop();
+        LeaveCriticalSection(&queueLock);
+
+        sequentialMergeSort(*(task.arr), task.left, task.right);
+    }
+
     return 0;
 }
 
@@ -100,6 +132,9 @@ void parallelMergeSort(vector<int>& arr, int left, int right){
 }
 
 int main() {
+
+    InitializeCriticalSection(&queueLock);
+    InitializeConditionVariable(&taskReady);
 
     const int N = 10000000;
     vector<int> data(N);
