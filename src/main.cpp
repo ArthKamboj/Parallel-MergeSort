@@ -178,33 +178,68 @@ int main() {
     cout << "Load Balancer initialized with " << MAX_THREADS << "worker threads." << "\n";
 
     const int N = 10000000;
-    vector<int> data(N);
+    vector<int> data1(N);
+    vector<int> data2(N);
     vector<int> aux(N);
 
     random_device rd;
     mt19937 gen(rd());
     uniform_int_distribution<> dis(1, 10000000);
-    for(int& x:data) x = dis(gen);
+    for(int& x:data1) x = dis(gen);
+    for(int& x:data2) x = dis(gen);
 
     cout << MAX_THREADS << "\n";
 
     cout << "Starting parallel sort for N = " << N << "\n";
 
-    auto start = chrono::high_resolution_clock::now();
+    auto start1 = chrono::high_resolution_clock::now();
 
-    sequentialMergeSort(data, aux, 0, N-1);
+    parallelMergeSort(data1, aux, 0, N-1, 0);
 
-    auto end = chrono::high_resolution_clock::now();
+    auto end1 = chrono::high_resolution_clock::now();
     
-    chrono::duration<double> elapsed = end-start;
+    chrono::duration<double> elapsed1 = end1-start1;
 
-    if(is_sorted(data.begin(), data.end())){
+    if(is_sorted(data1.begin(), data1.end())){
         cout << "Sort Successful" << "\n";
-        cout << "Time Taken: " << elapsed.count() << " seconds"<<"\n"; 
+        cout << "Time Taken: " << elapsed1.count() << " seconds"<<"\n"; 
     }
     else{
         cout << "Sort Failed!" << "\n";
     }
+
+    cout << "Starting parallel sort for N = " << N << "\n";
+
+    auto start2 = chrono::high_resolution_clock::now();
+
+    sequentialMergeSort(data2, aux, 0, N-1);
+
+    auto end2 = chrono::high_resolution_clock::now();
+    
+    chrono::duration<double> elapsed2 = end2-start2;
+
+    if(is_sorted(data2.begin(), data2.end())){
+        cout << "Sort Successful" << "\n";
+        cout << "Time Taken: " << elapsed2.count() << " seconds"<<"\n";
+        cout << "Proportional Difference: " << elapsed2.count()/elapsed1.count() <<"\n";
+    }
+    else{
+        cout << "Sort Failed!" << "\n";
+    }
+
+    EnterCriticalSection(&queueLock);
+    stopPool = true;
+    LeaveCriticalSection(&queueLock);
+
+    WakeAllConditionVariable(&taskReady);
+
+    for(int i=0; i<MAX_THREADS; i++){
+        WaitForSingleObject(threads[i], INFINITE);
+        CloseHandle(threads[i]);
+    }
+
+    DeleteCriticalSection(&queueLock);
+    delete[] threads;
 
     return 0;
 
