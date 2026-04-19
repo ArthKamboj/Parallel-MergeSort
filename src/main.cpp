@@ -6,9 +6,20 @@
 #include <future>
 #include <thread>
 #include <windows.h>
+#include <atomic>
+
 using namespace std;
 
 const int Threshold = 10000;
+
+int getCoreCount() {
+    SYSTEM_INFO sysinfo;
+    GetSystemInfo(&sysinfo);
+    return sysinfo.dwNumberOfProcessors;
+}    
+
+const int MAX_THREADS = getCoreCount();
+atomic<int> activethreads(1);
 
 
 void parallelMergeSort(vector<int>& arr, int left, int right);
@@ -66,15 +77,24 @@ void parallelMergeSort(vector<int>& arr, int left, int right){
 
     int mid = left + ((right-left)>>1);
 
-    ThreadData data = {&arr, left, mid};
-    HANDLE hThread = CreateThread(NULL, 0, threadWorker, &data, 0, NULL);
+    if(activethreads < MAX_THREADS){
+        activethreads++;
 
+        ThreadData data = {&arr, left, mid};
+        HANDLE hThread = CreateThread(NULL, 0, threadWorker, &data, 0, NULL);
 
-    // parellelMergeSort(arr, left, mid);
-    parallelMergeSort(arr, mid+1, right);
+        parallelMergeSort(arr, mid+1, right);
+    
+        WaitForSingleObject(hThread, INFINITE);
+        CloseHandle(hThread);
 
-    WaitForSingleObject(hThread, INFINITE);
-    CloseHandle(hThread);
+        activethreads--;
+    }
+    else{
+
+        sequentialMergeSort(arr, left, mid);
+        parallelMergeSort(arr, mid+1, right);
+    }
 
     merge(arr, left, mid, right);
 }
@@ -88,6 +108,8 @@ int main() {
     mt19937 gen(rd());
     uniform_int_distribution<> dis(1, 10000000);
     for(int& x:data) x = dis(gen);
+
+    cout << MAX_THREADS << "\n";
 
     cout << "Starting parallel sort for N = " << N << "\n";
 
