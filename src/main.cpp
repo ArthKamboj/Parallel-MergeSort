@@ -25,6 +25,7 @@ int getCoreCount() {
 
 struct SortTask {
     vector<int>* arr;
+    vector<int>* aux;
     int left;
     int right;
     int depth;
@@ -41,8 +42,8 @@ CONDITION_VARIABLE taskReady;
 bool stopPool = false;
 
 
-void sequentialMergeSort(vector<int>& arr, int left, int right);
-void parallelMergeSort(vector<int>& arr, int left, int right, int depth);
+void sequentialMergeSort(vector<int>& arr, vector<int>& aux, int left, int right);
+void parallelMergeSort(vector<int>& arr, vector<int>& aux, int left, int right, int depth);
 
 
 DWORD WINAPI poolWorker(LPVOID lpParam) {
@@ -64,7 +65,7 @@ DWORD WINAPI poolWorker(LPVOID lpParam) {
         taskQueue.pop();
         LeaveCriticalSection(&queueLock);
 
-        sequentialMergeSort(*(task.arr), task.left, task.right);
+        sequentialMergeSort(*(task.arr), *(task.aux), task.left, task.right);
 
         SetEvent(task.doneEvent);
     }
@@ -72,7 +73,7 @@ DWORD WINAPI poolWorker(LPVOID lpParam) {
     return 0;
 }
 
-void merge(vector<int>& arr, int left, int mid, int right){
+void merge_standard(vector<int>& arr, int left, int mid, int right){
 
     int n1 = mid - left + 1;
     int n2 = right - mid;
@@ -81,33 +82,57 @@ void merge(vector<int>& arr, int left, int mid, int right){
 
     for (int i=0; i<n1; i++) L[i] = arr[left+i];
     for (int j=0; j<n2; j++) R[j] = arr[mid+1+j];
-
+    
     int i=0, j=0, k=left;
     while (i<n1 && j<n2){
         if (L[i] <= R[j]) arr[k++] = L[i++];
         else arr[k++] = R[j++];
     }
-
+    
     while (i<n1) arr[k++] = L[i++];
     while (j<n2) arr[k++] = R[j++];
 }
 
+void merge_fast(vector<int>& arr, vector<int>& aux, int left, int mid, int right) {
 
-void sequentialMergeSort(vector<int>& arr, int left, int right){
+    for(int i=left; i<=right; i++) {
+        aux[i]= arr[i];
+    }
+
+    int i = left;
+    int j = mid+1;
+    int k = left;
+
+    while(i<=mid && j<=right) {
+        if(aux[i] <= aux[j]) {
+            arr[k++] = aux[i++];
+        }
+        else {
+            arr[k++] = aux[j++];
+        }   
+    }
+
+    while(i<=mid) {
+        arr[k++] = aux[i++];
+    }
+}
+
+void sequentialMergeSort(vector<int>& arr, vector<int>& aux, int left, int right){
     
     if(left<right){
         int mid = left + ((right-left)>>1);
-        sequentialMergeSort(arr, left, mid);
-        sequentialMergeSort(arr, mid+1, right);
-        merge(arr, left, mid, right);
+        sequentialMergeSort(arr, aux, left, mid);
+        sequentialMergeSort(arr, aux, mid+1, right);
+        merge_fast(arr, aux, left, mid, right);
     }
 
 }
 
-void parallelMergeSort(vector<int>& arr, int left, int right, int depth){
+
+void parallelMergeSort(vector<int>& arr, vector<int>& aux, int left, int right, int depth){
 
     if(right - left < Threshold){
-        sequentialMergeSort(arr, left, right);
+        sequentialMergeSort(arr, aux, left, right);
         return;
     }
 
@@ -118,12 +143,12 @@ void parallelMergeSort(vector<int>& arr, int left, int right, int depth){
         HANDLE doneSignal = CreateEvent(NULL, TRUE, FALSE, NULL);
 
         EnterCriticalSection(&queueLock);
-        taskQueue.push({&arr, left, mid, depth+1, doneSignal});
+        taskQueue.push({&arr, &aux, left, mid, depth+1, doneSignal});
         LeaveCriticalSection(&queueLock);
 
         WakeConditionVariable(&taskReady);
 
-        parallelMergeSort(arr, mid + 1, right, depth + 1);
+        parallelMergeSort(arr, aux, mid+1, right, depth+1);
 
         WaitForSingleObject(doneSignal, INFINITE);
         CloseHandle(doneSignal);
@@ -131,12 +156,12 @@ void parallelMergeSort(vector<int>& arr, int left, int right, int depth){
     }
     else{
 
-        sequentialMergeSort(arr, left, mid);
-        parallelMergeSort(arr, mid + 1, right, depth + 1);
+        sequentialMergeSort(arr, aux, left, mid);
+        sequentialMergeSort(arr, aux, mid + 1, right);
 
     }
 
-    merge(arr, left, mid, right);
+    merge_fast(arr, aux, left, mid, right);
 }
 
 int main() {
@@ -154,6 +179,7 @@ int main() {
 
     const int N = 10000000;
     vector<int> data(N);
+    vector<int> aux(N);
 
     random_device rd;
     mt19937 gen(rd());
@@ -166,7 +192,7 @@ int main() {
 
     auto start = chrono::high_resolution_clock::now();
 
-    parallelMergeSort(data, 0, N-1);
+    sequentialMergeSort(data, aux, 0, N-1);
 
     auto end = chrono::high_resolution_clock::now();
     
@@ -179,7 +205,6 @@ int main() {
     else{
         cout << "Sort Failed!" << "\n";
     }
-    cout << endl;
 
     return 0;
 
