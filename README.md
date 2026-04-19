@@ -33,10 +33,10 @@ Since threads in a pool do not exit upon task completion, the parent thread requ
 
 Results based on 10,000,000 integer elements:
 
-* **Sequential Sort (Unptimized)**: ~6.84 seconds
+* **Sequential Sort (Unoptimized)**: ~6.84 seconds
 * **Sequential Sort (Optimized)**: ~3.97 seconds
 * **Parallel Sort (Thread Pool)**: ~2.13 seconds
-* **Performance Gain**: Approximately 1.6x - 2.0x speedup (dependent on hardware memory bandwidth limits).
+* **Performance Gain**: Approximately 3.2x speedup from unoptimized sequential merge sort and 1.6x - 2.0x speedup from optimized sequential merge sort (dependent on hardware memory bandwidth limits).
 
 
 
