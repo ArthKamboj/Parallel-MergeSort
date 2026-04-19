@@ -3,9 +3,27 @@
 #include <algorithm>
 #include <chrono>
 #include <random>
+#include <future>
+#include <thread>
+#include <windows.h>
 using namespace std;
 
 const int Threshold = 10000;
+
+
+void parallelMergeSort(vector<int>& arr, int left, int right);
+
+struct ThreadData {
+    vector<int>* arr;
+    int left;
+    int right;
+};
+
+DWORD WINAPI threadWorker(LPVOID lpParam) {
+    ThreadData* data = (ThreadData*)lpParam;
+    parallelMergeSort(*(data->arr), data->left, data->right);
+    return 0;
+}
 
 void merge(vector<int>& arr, int left, int mid, int right){
 
@@ -39,7 +57,7 @@ void sequentialMergeSort(vector<int>& arr, int left, int right){
 
 }
 
-void parellelMergeSort(vector<int>& arr, int left, int right){
+void parallelMergeSort(vector<int>& arr, int left, int right){
 
     if(right - left < Threshold){
         sequentialMergeSort(arr, left, right);
@@ -47,26 +65,35 @@ void parellelMergeSort(vector<int>& arr, int left, int right){
     }
 
     int mid = left + ((right-left)>>1);
-    parellelMergeSort(arr, left, mid);
-    parellelMergeSort(arr, mid+1, right);
+
+    ThreadData data = {&arr, left, mid};
+    HANDLE hThread = CreateThread(NULL, 0, threadWorker, &data, 0, NULL);
+
+
+    // parellelMergeSort(arr, left, mid);
+    parallelMergeSort(arr, mid+1, right);
+
+    WaitForSingleObject(hThread, INFINITE);
+    CloseHandle(hThread);
+
     merge(arr, left, mid, right);
 }
 
 int main() {
 
-    const int N = 1000000;
+    const int N = 10000000;
     vector<int> data(N);
 
     random_device rd;
     mt19937 gen(rd());
-    uniform_int_distribution<> dis(1, 1000000);
+    uniform_int_distribution<> dis(1, 10000000);
     for(int& x:data) x = dis(gen);
 
-    cout << "Starting sequential sort for N = " << N << "\n";
+    cout << "Starting parallel sort for N = " << N << "\n";
 
     auto start = chrono::high_resolution_clock::now();
 
-    parellelMergeSort(data, 0, N-1);
+    parallelMergeSort(data, 0, N-1);
 
     auto end = chrono::high_resolution_clock::now();
     
