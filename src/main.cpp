@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <random>
 #include <future>
@@ -27,6 +28,7 @@ struct SortTask {
     int left;
     int right;
     int depth;
+    HANDLE doneEvent;
 };
 
 const int MAX_THREADS = getCoreCount();
@@ -39,8 +41,8 @@ CONDITION_VARIABLE taskReady;
 bool stopPool = false;
 
 
-
-void parallelMergeSort(vector<int>& arr, int left, int right);
+void sequentialMergeSort(vector<int>& arr, int left, int right);
+void parallelMergeSort(vector<int>& arr, int left, int right, int depth);
 
 
 DWORD WINAPI poolWorker(LPVOID lpParam) {
@@ -63,6 +65,8 @@ DWORD WINAPI poolWorker(LPVOID lpParam) {
         LeaveCriticalSection(&queueLock);
 
         sequentialMergeSort(*(task.arr), task.left, task.right);
+
+        SetEvent(task.doneEvent);
     }
 
     return 0;
@@ -100,7 +104,7 @@ void sequentialMergeSort(vector<int>& arr, int left, int right){
 
 }
 
-void parallelMergeSort(vector<int>& arr, int left, int right){
+void parallelMergeSort(vector<int>& arr, int left, int right, int depth){
 
     if(right - left < Threshold){
         sequentialMergeSort(arr, left, right);
@@ -109,23 +113,27 @@ void parallelMergeSort(vector<int>& arr, int left, int right){
 
     int mid = left + ((right-left)>>1);
 
-    if(activethreads < MAX_THREADS){
-        activethreads++;
+    if(depth < MAX_DEPTH){
 
-        ThreadData data = {&arr, left, mid};
-        HANDLE hThread = CreateThread(NULL, 0, threadWorker, &data, 0, NULL);
+        HANDLE doneSignal = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-        parallelMergeSort(arr, mid+1, right);
-    
-        WaitForSingleObject(hThread, INFINITE);
-        CloseHandle(hThread);
+        EnterCriticalSection(&queueLock);
+        taskQueue.push({&arr, left, mid, depth+1, doneSignal});
+        LeaveCriticalSection(&queueLock);
 
-        activethreads--;
+        WakeConditionVariable(&taskReady);
+
+        parallelMergeSort(arr, mid + 1, right, depth + 1);
+
+        WaitForSingleObject(doneSignal, INFINITE);
+        CloseHandle(doneSignal);
+        
     }
     else{
 
         sequentialMergeSort(arr, left, mid);
-        parallelMergeSort(arr, mid+1, right);
+        parallelMergeSort(arr, mid + 1, right, depth + 1);
+
     }
 
     merge(arr, left, mid, right);
@@ -135,6 +143,14 @@ int main() {
 
     InitializeCriticalSection(&queueLock);
     InitializeConditionVariable(&taskReady);
+
+    HANDLE* threads = new HANDLE[MAX_THREADS];
+
+    for(int i=0; i<MAX_THREADS; i++){
+        threads[i] = CreateThread(NULL, 0, poolWorker, NULL, 0, NULL);
+    }
+
+    cout << "Load Balancer initialized with " << MAX_THREADS << "worker threads." << "\n";
 
     const int N = 10000000;
     vector<int> data(N);
