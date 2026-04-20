@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <atomic>
 #include <queue>
+#include <deque>
 #include <mutex>
 #include <condition_variable>
 
@@ -36,41 +37,59 @@ const int MAX_THREADS = getCoreCount();
 const int MAX_DEPTH = log2(MAX_THREADS)+2;
 atomic<int> activethreads(1);
 
-queue<SortTask> taskQueue;
-CRITICAL_SECTION queueLock;
+vector<deque<SortTask>> localQueues(MAX_THREADS);    
+vector<CRITICAL_SECTION> localLocks(MAX_THREADS);
 CONDITION_VARIABLE taskReady;
 bool stopPool = false;
 
 
 void sequentialMergeSort(vector<int>& arr, vector<int>& aux, int left, int right);
-void parallelMergeSort(vector<int>& arr, vector<int>& aux, int left, int right, int depth);
+void parallelMergeSort(vector<int>& arr, vector<int>& aux, int left, int right, int depth, int threadId);
 
 
 DWORD WINAPI poolWorker(LPVOID lpParam) {
 
-    while (true) {
+    int myId = *(int*)lpParam;
+    delete (int*)lpParam;
+
+    while (true){
         SortTask task;
-        EnterCriticalSection(&queueLock);
+        bool foundTask = false;
 
-        while(taskQueue.empty() && !stopPool) {
-                SleepConditionVariableCS(&taskReady, &queueLock, INFINITE);
+        EnterCriticalSection(&localLocks[myId]);
+        if (!localQueues[myId].empty()){
+            task = localQueues[myId].front();
+            localQueues[myId].pop_front();
+            foundTask = true;
+        }
+        LeaveCriticalSection(&localLocks[myId]);
+
+        if(!foundTask){
+            for(int i=0; i<MAX_THREADS; i++){
+                if(i == myId) continue;
+
+                if(TryEnterCriticalSection(&localLocks[i])){
+                    if(!localQueues[i].empty()){
+                        task = localQueues[i].back();
+                        localQueues[i].pop_back();
+                        foundTask = true;
+                    }
+                    LeaveCriticalSection(&localLocks[i]);
+                }
+                if(foundTask) break;
+            }
         }
 
-        if(stopPool && taskQueue.empty()) {
-            LeaveCriticalSection(&queueLock);
-            break;
+        if(!foundTask){
+            if(stopPool) break;
+            Sleep(1);
+            continue;
         }
-
-        task = taskQueue.front();
-        taskQueue.pop();
-        LeaveCriticalSection(&queueLock);
 
         sequentialMergeSort(*(task.arr), *(task.aux), task.left, task.right);
-
         SetEvent(task.doneEvent);
-    }
 
-    return 0;
+    }
 }
 
 void merge_standard(vector<int>& arr, int left, int mid, int right){
@@ -129,7 +148,7 @@ void sequentialMergeSort(vector<int>& arr, vector<int>& aux, int left, int right
 }
 
 
-void parallelMergeSort(vector<int>& arr, vector<int>& aux, int left, int right, int depth){
+void parallelMergeSort(vector<int>& arr, vector<int>& aux, int left, int right, int depth, int threadId){
 
     if(right - left < Threshold){
         sequentialMergeSort(arr, aux, left, right);
@@ -142,13 +161,11 @@ void parallelMergeSort(vector<int>& arr, vector<int>& aux, int left, int right, 
 
         HANDLE doneSignal = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-        EnterCriticalSection(&queueLock);
-        taskQueue.push({&arr, &aux, left, mid, depth+1, doneSignal});
-        LeaveCriticalSection(&queueLock);
+        EnterCriticalSection(&localLocks[threadId]);
+        localQueues[threadId].push_front({&arr, &aux, left, mid, depth+1, doneSignal});
+        LeaveCriticalSection(&localLocks[threadId]);
 
-        WakeConditionVariable(&taskReady);
-
-        parallelMergeSort(arr, aux, mid+1, right, depth+1);
+        parallelMergeSort(arr, aux, mid+1, right, depth+1,threadId);
 
         WaitForSingleObject(doneSignal, INFINITE);
         CloseHandle(doneSignal);
@@ -166,13 +183,20 @@ void parallelMergeSort(vector<int>& arr, vector<int>& aux, int left, int right, 
 
 int main() {
 
-    InitializeCriticalSection(&queueLock);
+    localQueues.resize(MAX_THREADS);
+    localLocks.resize(MAX_THREADS);
+
+    for(int i=0; i<MAX_THREADS; i++){
+        InitializeCriticalSection(&localLocks[i]);
+    }
+
     InitializeConditionVariable(&taskReady);
 
     HANDLE* threads = new HANDLE[MAX_THREADS];
 
     for(int i=0; i<MAX_THREADS; i++){
-        threads[i] = CreateThread(NULL, 0, poolWorker, NULL, 0, NULL);
+        int* id = new int(i);
+        threads[i] = CreateThread(NULL, 0, poolWorker, id, 0, NULL);
     }
 
     cout << "Load Balancer initialized with " << MAX_THREADS << "worker threads." << "\n";
@@ -194,7 +218,7 @@ int main() {
 
     auto start1 = chrono::high_resolution_clock::now();
 
-    parallelMergeSort(data1, aux, 0, N-1, 0);
+    parallelMergeSort(data1, aux, 0, N-1, 0, 0);
 
     auto end1 = chrono::high_resolution_clock::now();
     
@@ -208,7 +232,7 @@ int main() {
         cout << "Sort Failed!" << "\n";
     }
 
-    cout << "Starting parallel sort for N = " << N << "\n";
+    cout << "Starting sequential sort for N = " << N << "\n";
 
     auto start2 = chrono::high_resolution_clock::now();
 
@@ -227,9 +251,9 @@ int main() {
         cout << "Sort Failed!" << "\n";
     }
 
-    EnterCriticalSection(&queueLock);
+    EnterCriticalSection(&localLocks[0]);
     stopPool = true;
-    LeaveCriticalSection(&queueLock);
+    LeaveCriticalSection(&localLocks[0]);
 
     WakeAllConditionVariable(&taskReady);
 
@@ -238,7 +262,9 @@ int main() {
         CloseHandle(threads[i]);
     }
 
-    DeleteCriticalSection(&queueLock);
+    for(int i=0; i<MAX_THREADS; i++){
+        DeleteCriticalSection(&localLocks[i]);
+    }
     delete[] threads;
 
     return 0;
