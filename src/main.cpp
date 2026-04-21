@@ -122,26 +122,30 @@ void merge_standard(vector<int>& arr, int left, int mid, int right){
 
 void merge_fast(vector<int>& arr, vector<int>& aux, int left, int mid, int right) {
 
-    for(int i=left; i<=right; i++) {
-        aux[i]= arr[i];
+    int size = right-left+1;
+
+    int i=left;
+    for(; i<=right-7; i+=8){
+        
+        __m256i data = _mm256_loadu_si256((__m256i*)&arr[i]);
+        _mm256_storeu_si256((__m256i*)&aux[i], data);
+    }
+    for (; i <= right; i++){
+        aux[i] = arr[i];
     }
 
-    int i = left;
-    int j = mid+1;
+    int p1 = left;
+    int p2 = mid+1;
     int k = left;
 
-    while(i<=mid && j<=right) {
-        if(aux[i] <= aux[j]) {
-            arr[k++] = aux[i++];
-        }
-        else {
-            arr[k++] = aux[j++];
-        }   
+    while (p1<=mid && p2<=right){
+        
+        bool pick = aux[p2] < aux[p1];
+        arr[k++] = pick? aux[p2++]:aux[p1++];
     }
 
-    while(i<=mid) {
-        arr[k++] = aux[i++];
-    }
+    while(p1<=mid) arr[k++] = aux[p1++];
+    
 }
 
 void sequentialMergeSort(vector<int>& arr, vector<int>& aux, int left, int right){
