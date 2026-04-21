@@ -12,6 +12,7 @@
 #include <queue>
 #include <deque>
 #include <mutex>
+#include <immintrin.h>
 #include <condition_variable>
 
 using namespace std;
@@ -82,7 +83,14 @@ DWORD WINAPI poolWorker(LPVOID lpParam) {
 
         if(!foundTask){
             if(stopPool) break;
-            Sleep(1);
+
+            for(int spin=0; spin<100; spin++){
+                if(!localQueues[myId].empty()) break;
+                _mm_pause();
+            }
+            if(localQueues[myId].empty()){
+                SwitchToThread();
+            }
             continue;
         }
 
