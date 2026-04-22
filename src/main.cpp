@@ -25,6 +25,7 @@ int getCoreCount() {
     return sysinfo.dwNumberOfProcessors;
 }    
 
+template <typename T>
 struct SortTask {
     vector<int>* arr;
     vector<int>* aux;
@@ -38,7 +39,7 @@ const int MAX_THREADS = getCoreCount();
 const int MAX_DEPTH = log2(MAX_THREADS)+2;
 atomic<int> activethreads(1);
 
-vector<deque<SortTask>> localQueues(MAX_THREADS);    
+vector<deque<SortTask<int>>> localQueues(MAX_THREADS);    
 vector<CRITICAL_SECTION> localLocks(MAX_THREADS);
 CONDITION_VARIABLE taskReady;
 bool stopPool = false;
@@ -54,7 +55,7 @@ DWORD WINAPI poolWorker(LPVOID lpParam) {
     delete (int*)lpParam;
 
     while (true){
-        SortTask task;
+        SortTask<int> task;
         bool foundTask = false;
 
         EnterCriticalSection(&localLocks[myId]);
@@ -126,6 +127,7 @@ void merge_fast(vector<int>& arr, vector<int>& aux, int left, int mid, int right
 
     int i=left;
     for(; i<=right-7; i+=8){
+        
         __m256i data = _mm256_loadu_si256((__m256i*)&arr[i]);
         _mm256_storeu_si256((__m256i*)&aux[i], data);
     }
