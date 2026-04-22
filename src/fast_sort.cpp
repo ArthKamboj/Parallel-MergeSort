@@ -13,6 +13,7 @@
 #include <deque>
 #include <mutex>
 #include <immintrin.h>
+#include <type_traits>
 #include <condition_variable>
 
 using namespace std;
@@ -24,10 +25,10 @@ int getCoreCount() {
     GetSystemInfo(&sysinfo);
     return sysinfo.dwNumberOfProcessors;
 }    
-
+template <typename T>
 struct SortTask {
-    vector<int>* arr;
-    vector<int>* aux;
+    vector<T>* arr;
+    vector<T>* aux;
     int left;
     int right;
     int depth;
@@ -38,7 +39,7 @@ const int MAX_THREADS = getCoreCount();
 const int MAX_DEPTH = log2(MAX_THREADS)+2;
 atomic<int> activethreads(1);
 
-vector<deque<SortTask>> localQueues(MAX_THREADS);    
+vector<deque<SortTask<int>>> localQueues(MAX_THREADS);    
 vector<CRITICAL_SECTION> localLocks(MAX_THREADS);
 CONDITION_VARIABLE taskReady;
 bool stopPool = false;
@@ -54,7 +55,7 @@ DWORD WINAPI poolWorker(LPVOID lpParam) {
     delete (int*)lpParam;
 
     while (true){
-        SortTask task;
+        SortTask<int> task;
         bool foundTask = false;
 
         EnterCriticalSection(&localLocks[myId]);
@@ -120,19 +121,24 @@ void merge_standard(vector<int>& arr, int left, int mid, int right){
     while (j<n2) arr[k++] = R[j++];
 }
 
-void merge_fast(vector<int>& arr, vector<int>& aux, int left, int mid, int right) {
+template <typename T>
+void merge_fast(vector<T>& arr, vector<T>& aux, int left, int mid, int right) {
 
     int size = right-left+1;
 
     int i=left;
-    for(; i<=right-7; i+=8){
-        __m256i data = _mm256_loadu_si256((__m256i*)&arr[i]);
-        _mm256_storeu_si256((__m256i*)&aux[i], data);
+
+    if constexpr (is_name_v<T, int>) {
+
+        for(; i<=right-7; i+=8){
+            __m256i data = _mm256_loadu_si256((__m256i*)&arr[i]);
+            _mm256_storeu_si256((__m256i*)&aux[i], data);
+        }
     }
     for (; i <= right; i++){
         aux[i] = arr[i];
     }
-
+        
     int p1 = left;
     int p2 = mid+1;
     int k = left;
@@ -147,7 +153,8 @@ void merge_fast(vector<int>& arr, vector<int>& aux, int left, int mid, int right
     
 }
 
-void sequentialMergeSort(vector<int>& arr, vector<int>& aux, int left, int right){
+template <typename T>
+void sequentialMergeSort(vector<T>& arr, vector<T>& aux, int left, int right){
     
     if(left<right){
         int mid = left + ((right-left)>>1);
@@ -280,4 +287,4 @@ int main() {
 
     return 0;
 
-}
+}   
