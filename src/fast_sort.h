@@ -1,14 +1,39 @@
 #pragma once
+#ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0600
+#endif
+
 #include <iostream>
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include <chrono>
 #include <windows.h>
 #include <deque>
 #include <type_traits>
 #include <immintrin.h>
+
+template <typename T>
+struct MergeHelper {
+    static void copy_to_aux(std::vector<T>& arr, std::vector<T>& aux, int left, int right) {
+        for (int i = left; i <= right; i++) {
+            aux[i] = arr[i];
+        }
+    }
+};
+
+template <>
+struct MergeHelper<int> {
+    static void copy_to_aux(std::vector<int>& arr, std::vector<int>& aux, int left, int right) {
+        int i = left;
+        for (; i <= right - 7; i += 8) {
+            __m256i data = _mm256_loadu_si256((__m256i*)&arr[i]);
+            _mm256_storeu_si256((__m256i*)&aux[i], data);
+        }
+        for (; i <= right; i++) {
+            aux[i] = arr[i];
+        }
+    }
+};
 
 template <typename T>
 struct SortTask {
@@ -20,13 +45,13 @@ struct SortTask {
     HANDLE doneEvent;
 };
 
+
 template <typename T>
 class ParallelSorter {
 private:
     int MAX_THREADS;
     int MAX_DEPTH;
     const int THRESHOLD = 10000;
-    
     std::vector<std::deque<SortTask<T>>> localQueues;
     std::vector<CRITICAL_SECTION> localLocks;
     HANDLE* threads;
@@ -85,15 +110,8 @@ private:
     }
 
     void merge_fast(std::vector<T>& arr, std::vector<T>& aux, int left, int mid, int right) {
-        int i = left;
         
-        if constexpr (std::is_same_v<T, int>) {
-            for (; i <= right - 7; i += 8) {
-                __m256i data = _mm256_loadu_si256((__m256i*)&arr[i]);
-                _mm256_storeu_si256((__m256i*)&aux[i], data);
-            }
-        }
-        for (; i <= right; i++) aux[i] = arr[i];
+        MergeHelper<T>::copy_to_aux(arr, aux, left, right);
 
         int p1 = left, p2 = mid + 1, k = left;
         while (p1 <= mid && p2 <= right) {
@@ -119,16 +137,13 @@ private:
         }
 
         int mid = left + ((right - left) >> 1);
-
         if (depth < MAX_DEPTH) {
             HANDLE doneSignal = CreateEvent(NULL, TRUE, FALSE, NULL);
-
             EnterCriticalSection(&localLocks[threadId]);
             localQueues[threadId].push_front({&arr, &aux, left, mid, depth + 1, doneSignal});
             LeaveCriticalSection(&localLocks[threadId]);
 
             parallelRecursive(arr, aux, mid + 1, right, depth + 1, threadId);
-
             WaitForSingleObject(doneSignal, INFINITE);
             CloseHandle(doneSignal);
         } else {
