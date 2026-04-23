@@ -1,4 +1,4 @@
-# High-Performance Parallel Merge Sort Engine
+# High-Performance Parallel Merge Sort With Adaptive Load Balancing
 
 A professional-grade, header-only C++ template library for multi-threaded sorting. This engine leverages the Windows API to implement a decentralized **Work-Stealing Scheduler** and **AVX2 SIMD acceleration**, specifically engineered to saturate hardware memory bandwidth and minimize overhead.
 
